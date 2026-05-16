@@ -42,6 +42,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
     }
 
     usort($sessions, fn($a, $b) => $b['id'] <=> $a['id']);
+    $qsoTotal = array_sum(array_column($sessions, 'qso'));
+    db_log($callsign, count($sessions), $qsoTotal);
     echo json_encode($sessions);
     exit;
 }
@@ -79,6 +81,133 @@ if (isset($_GET['action']) && $_GET['action'] === 'stats') {
         'unique'     => count($unique),
         'duplicates' => $total - count($unique),
     ]);
+    exit;
+}
+
+// --- SQLite ---
+define('DB_PATH', __DIR__ . '/stats.db');
+
+function db_connect(): PDO {
+    $db = new PDO('sqlite:' . DB_PATH);
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $db->exec("CREATE TABLE IF NOT EXISTS queries (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        callsign   TEXT    NOT NULL,
+        sessions   INTEGER NOT NULL DEFAULT 0,
+        qso_total  INTEGER NOT NULL DEFAULT 0,
+        queried_at TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    )");
+    return $db;
+}
+
+function db_log(string $callsign, int $sessions, int $qsoTotal): void {
+    try {
+        $db = db_connect();
+        $db->prepare("INSERT INTO queries (callsign, sessions, qso_total) VALUES (?, ?, ?)")
+           ->execute([strtoupper($callsign), $sessions, $qsoTotal]);
+    } catch (Exception $e) { /* silent */ }
+}
+
+// --- Strona statystyk ---
+if (isset($_GET['page']) && $_GET['page'] === 'stats') {
+    try {
+        $db      = db_connect();
+        $summary = $db->query("SELECT COUNT(*) AS queries, COUNT(DISTINCT callsign) AS callsigns, SUM(qso_total) AS qsos FROM queries")->fetch(PDO::FETCH_ASSOC);
+        $top     = $db->query("SELECT callsign, COUNT(*) AS cnt, MAX(sessions) AS sessions, MAX(qso_total) AS qso_total, MAX(queried_at) AS last_seen FROM queries GROUP BY callsign ORDER BY cnt DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
+        $recent  = $db->query("SELECT callsign, sessions, qso_total, queried_at FROM queries ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        die('Błąd bazy danych: ' . htmlspecialchars($e->getMessage()));
+    }
+    ?>
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Statystyki — RadioDyplom ADIF</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #222; padding: 2rem; }
+  h1 { font-size: 1.4rem; margin-bottom: 1.5rem; }
+  h2 { font-size: 1rem; font-weight: 700; margin-bottom: .75rem; color: #374151; }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  .cards { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.1); padding: 1.2rem 1.5rem; flex: 1; min-width: 160px; }
+  .card-label { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: .3rem; }
+  .card-value { font-size: 2rem; font-weight: 800; color: #2563eb; }
+  .table-card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.1); padding: 1.2rem 1.5rem; margin-bottom: 1.5rem; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th { text-align: left; padding: .5rem .75rem; background: #f8fafc; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid #f3f4f6; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f9fafb; }
+  .cs { font-weight: 700; color: #1d4ed8; font-family: monospace; }
+  .back { display: inline-block; margin-bottom: 1.2rem; font-size: .85rem; color: #2563eb; text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+  footer { text-align: center; margin-top: 1.5rem; font-size: .8rem; color: #999; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Powrót do eksportu</a>
+  <h1>📊 Statystyki zapytań</h1>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Zapytania łącznie</div>
+      <div class="card-value"><?= (int)($summary['queries'] ?? 0) ?></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Unikalne znaki</div>
+      <div class="card-value"><?= (int)($summary['callsigns'] ?? 0) ?></div>
+    </div>
+    <div class="card">
+      <div class="card-label">QSO odczytane łącznie</div>
+      <div class="card-value"><?= (int)($summary['qsos'] ?? 0) ?></div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <h2>Top znaki wywoławcze</h2>
+    <table>
+      <thead><tr><th>Znak</th><th>Zapytania</th><th>Sesje (max)</th><th>QSO (max)</th><th>Ostatnio widziany</th></tr></thead>
+      <tbody>
+        <?php foreach ($top as $r): ?>
+        <tr>
+          <td class="cs"><?= htmlspecialchars($r['callsign']) ?></td>
+          <td><?= (int)$r['cnt'] ?></td>
+          <td><?= (int)$r['sessions'] ?></td>
+          <td><?= (int)$r['qso_total'] ?></td>
+          <td><?= htmlspecialchars($r['last_seen']) ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="table-card">
+    <h2>Ostatnie 50 zapytań</h2>
+    <table>
+      <thead><tr><th>Znak</th><th>Sesje</th><th>QSO</th><th>Data odczytu</th></tr></thead>
+      <tbody>
+        <?php foreach ($recent as $r): ?>
+        <tr>
+          <td class="cs"><?= htmlspecialchars($r['callsign']) ?></td>
+          <td><?= (int)$r['sessions'] ?></td>
+          <td><?= (int)$r['qso_total'] ?></td>
+          <td><?= htmlspecialchars($r['queried_at']) ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<footer>Stworzono przez <strong>Zjawa.IT</strong> &mdash;
+  <a href="https://github.com/enclude/www.radidyplom-adif.zjawa.dev" target="_blank" rel="noopener" style="color:#6b7280;">GitHub</a>
+</footer>
+</body>
+</html>
+    <?php
     exit;
 }
 
@@ -299,6 +428,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
   Stworzono przez <strong>Zjawa.IT</strong> &mdash;
   <a href="https://github.com/enclude/www.radidyplom-adif.zjawa.dev" target="_blank" rel="noopener"
      style="color:#6b7280; text-decoration:underline;">GitHub</a>
+  &mdash;
+  <a href="?page=stats" style="color:#6b7280; text-decoration:underline;">Statystyki</a>
 </footer>
 
 <script>
