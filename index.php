@@ -136,7 +136,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #222; padding: 2rem; }
-  .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.1); padding: 1.5rem; max-width: 600px; margin: 0 auto; }
+  .layout { display: flex; gap: 1.5rem; max-width: 960px; margin: 0 auto; align-items: flex-start; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.1); padding: 1.5rem; flex: 1; }
+  .summary-card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.1); padding: 1.5rem; width: 260px; flex-shrink: 0; }
+  .summary-card h2 { font-size: 1rem; margin-bottom: 1rem; color: #374151; }
+  .stat { margin-bottom: .9rem; }
+  .stat-label { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: .2rem; }
+  .stat-value { font-size: 1.6rem; font-weight: 800; color: #2563eb; line-height: 1; }
+  .stat-sub { font-size: .8rem; color: #6b7280; margin-top: .2rem; }
+  .summary-empty { color: #9ca3af; font-size: .85rem; margin-top: .5rem; }
+  @media (max-width: 700px) { .layout { flex-direction: column; } .summary-card { width: 100%; } }
   h1 { font-size: 1.4rem; margin-bottom: .25rem; }
   .subtitle { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
   label { display: block; font-weight: 600; font-size: .9rem; margin-bottom: .3rem; }
@@ -155,6 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
 </style>
 </head>
 <body>
+<div class="layout">
 <div class="card">
   <h1>📡 RadioDyplom → ADIF Export</h1>
   <p class="subtitle">Wpisz znak — sesje załadują się automatycznie</p>
@@ -184,6 +194,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
     ℹ️ <strong>QRZ.com</strong> nie doda ponownie łączności, która już istnieje w logu — import ADIF jest odporny na duplikaty. Możesz bezpiecznie importować plik wielokrotnie.
   </p>
 </div>
+
+<div class="summary-card">
+  <h2>📊 Podsumowanie</h2>
+  <div id="summary-content">
+    <p class="summary-empty">Wpisz znak wywoławczy, aby zobaczyć statystyki.</p>
+  </div>
+</div>
+
+</div><!-- /layout -->
 
 <footer style="text-align:center; margin-top:1.5rem; font-size:.8rem; color:#999;">
   Stworzono przez <strong>Zjawa.IT</strong> &mdash;
@@ -215,6 +234,8 @@ function resetSelect() {
   select.innerHTML   = '<option value="">— wpisz znak wywoławczy —</option>';
   select.disabled    = true;
   btnSubmit.disabled = true;
+  document.getElementById('summary-content').innerHTML =
+    '<p class="summary-empty">Wpisz znak wywoławczy, aby zobaczyć statystyki.</p>';
 }
 
 async function fetchSessions(callsign) {
@@ -245,11 +266,36 @@ async function fetchSessions(callsign) {
 
     select.disabled    = false;
     btnSubmit.disabled = false;
+    renderSummary(data);
   } catch (e) {
     select.innerHTML = '<option value="">Błąd pobierania sesji</option>';
   } finally {
     spinner.style.display = 'none';
   }
+}
+
+function renderSummary(sessions) {
+  const totalQso  = sessions.reduce((s, x) => s + x.qso, 0);
+  const best      = sessions.reduce((a, b) => b.qso > a.qso ? b : a, sessions[0]);
+  const ongoing   = sessions.filter(s => s.status === 'status-ongoing').length;
+
+  document.getElementById('summary-content').innerHTML = `
+    <div class="stat">
+      <div class="stat-label">Akcje dyplomowe</div>
+      <div class="stat-value">${sessions.length}</div>
+      <div class="stat-sub">${ongoing > 0 ? `w tym ${ongoing} aktualnie trwające` : 'brak aktualnie trwających'}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Łączności (QSO)</div>
+      <div class="stat-value">${totalQso}</div>
+      <div class="stat-sub">łącznie na radiodyplom.pl</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Najaktywniejsza akcja</div>
+      <div class="stat-value" style="font-size:1.1rem; line-height:1.3">${best.name}</div>
+      <div class="stat-sub">${best.qso} QSO (ses_id: ${best.id})</div>
+    </div>
+  `;
 }
 </script>
 </body>
