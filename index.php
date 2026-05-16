@@ -84,6 +84,20 @@ if (isset($_GET['action']) && $_GET['action'] === 'stats') {
     exit;
 }
 
+// --- AJAX: dane wykresu dla callsign ---
+if (isset($_GET['action']) && $_GET['action'] === 'chart_data') {
+    header('Content-Type: application/json; charset=utf-8');
+    $callsign = strtoupper(trim($_GET['callsign'] ?? ''));
+    if (!$callsign) { echo json_encode([]); exit; }
+    try {
+        $db   = db_connect();
+        $stmt = $db->prepare("SELECT date(queried_at) AS day, MAX(qso_total) AS qso FROM queries WHERE callsign = ? GROUP BY date(queried_at) ORDER BY day ASC");
+        $stmt->execute([$callsign]);
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    } catch (Exception $e) { echo json_encode([]); }
+    exit;
+}
+
 // --- SQLite ---
 define('DB_PATH', __DIR__ . '/stats.db');
 
@@ -125,6 +139,7 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
 <meta charset="UTF-8">
 <title>Statystyki — RadioDyplom ADIF</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #222; padding: 2rem; }
@@ -141,10 +156,14 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
   td { padding: .5rem .75rem; border-bottom: 1px solid #f3f4f6; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: #f9fafb; }
-  .cs { font-weight: 700; color: #1d4ed8; font-family: monospace; }
+  .cs { font-weight: 700; color: #1d4ed8; font-family: monospace; cursor: pointer; }
+  .cs:hover { text-decoration: underline; }
   .back { display: inline-block; margin-bottom: 1.2rem; font-size: .85rem; color: #2563eb; text-decoration: none; }
   .back:hover { text-decoration: underline; }
   footer { text-align: center; margin-top: 1.5rem; font-size: .8rem; color: #999; }
+  .chart-row { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  select.cs-select { padding: .4rem .7rem; border: 1px solid #ccc; border-radius: 6px; font-size: .95rem; background: #fff; }
+  .chart-empty { color: #9ca3af; font-size: .85rem; padding: 2rem 0; text-align: center; }
 </style>
 </head>
 <body>
@@ -168,13 +187,30 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
   </div>
 
   <div class="table-card">
+    <h2>📈 Historia QSO dla znaku</h2>
+    <div class="chart-row">
+      <label for="chart-cs" style="font-size:.85rem;font-weight:600;">Znak:</label>
+      <select id="chart-cs" class="cs-select">
+        <option value="">— wybierz —</option>
+        <?php foreach ($top as $r): ?>
+        <option value="<?= htmlspecialchars($r['callsign']) ?>"><?= htmlspecialchars($r['callsign']) ?></option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <div id="chart-wrap" style="position:relative; height:260px;">
+      <p class="chart-empty" id="chart-empty">Wybierz znak wywoławczy, aby zobaczyć wykres.</p>
+      <canvas id="myChart" style="display:none;"></canvas>
+    </div>
+  </div>
+
+  <div class="table-card">
     <h2>Top znaki wywoławcze</h2>
     <table>
       <thead><tr><th>Znak</th><th>Zapytania</th><th>Sesje (max)</th><th>QSO (max)</th><th>Ostatnio widziany</th></tr></thead>
       <tbody>
         <?php foreach ($top as $r): ?>
         <tr>
-          <td class="cs"><?= htmlspecialchars($r['callsign']) ?></td>
+          <td class="cs" data-cs="<?= htmlspecialchars($r['callsign']) ?>" title="Kliknij, aby zobaczyć wykres"><?= htmlspecialchars($r['callsign']) ?></td>
           <td><?= (int)$r['cnt'] ?></td>
           <td><?= (int)$r['sessions'] ?></td>
           <td><?= (int)$r['qso_total'] ?></td>
@@ -205,6 +241,73 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
 <footer>Stworzono przez <strong>Zjawa.IT</strong> &mdash;
   <a href="https://github.com/enclude/www.radidyplom-adif.zjawa.dev" target="_blank" rel="noopener" style="color:#6b7280;">GitHub</a>
 </footer>
+<script>
+let chart = null;
+
+const sel   = document.getElementById('chart-cs');
+const empty = document.getElementById('chart-empty');
+const canvas= document.getElementById('myChart');
+
+sel.addEventListener('change', () => loadChart(sel.value));
+
+// klik na znak w tabeli → wybiera go w selekcie i ładuje wykres
+document.querySelectorAll('.cs[data-cs]').forEach(el => {
+  el.addEventListener('click', () => {
+    sel.value = el.dataset.cs;
+    loadChart(el.dataset.cs);
+  });
+});
+
+async function loadChart(callsign) {
+  if (!callsign) { showEmpty('Wybierz znak wywoławczy, aby zobaczyć wykres.'); return; }
+  showEmpty('⏳ Ładowanie…');
+  try {
+    const resp = await fetch(`?action=chart_data&callsign=${encodeURIComponent(callsign)}`);
+    const data = await resp.json();
+    if (!data.length) { showEmpty('Brak danych dla tego znaku.'); return; }
+    renderChart(callsign, data);
+  } catch { showEmpty('Błąd ładowania danych.'); }
+}
+
+function showEmpty(msg) {
+  canvas.style.display = 'none';
+  empty.style.display  = 'block';
+  empty.textContent    = msg;
+  if (chart) { chart.destroy(); chart = null; }
+}
+
+function renderChart(callsign, data) {
+  empty.style.display  = 'none';
+  canvas.style.display = 'block';
+  if (chart) chart.destroy();
+  chart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: data.map(d => d.day),
+      datasets: [{
+        label: `QSO — ${callsign}`,
+        data:  data.map(d => parseInt(d.qso)),
+        borderColor:     '#2563eb',
+        backgroundColor: 'rgba(37,99,235,.1)',
+        borderWidth: 2,
+        pointRadius: 4,
+        pointBackgroundColor: '#2563eb',
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#f3f4f6' }, ticks: { font: { size: 11 } } },
+        y: { grid: { color: '#f3f4f6' }, ticks: { font: { size: 11 }, precision: 0 }, beginAtZero: true }
+      }
+    }
+  });
+}
+</script>
 </body>
 </html>
     <?php
