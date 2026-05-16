@@ -44,6 +44,21 @@ Strona dostępna pod: `http://localhost:8080/`
 | `favicon.svg` | Ikona (antena + fale radiowe) |
 | `stats.db` | Baza SQLite z logiem zapytań (tworzona automatycznie) |
 
+## Uprawnienia katalogu
+
+PHP w kontenerze działa jako użytkownik `application` (UID 1000). Katalog na hoście musi być jego własnością:
+
+```bash
+chown 1000:1000 /opt/nginx/radidyplom-adif.zjawa.dev
+```
+
+Bez tego zapis `stats.db` zakończy się błędem `unable to open database file`.
+
+Ścieżka bazy (wybierana automatycznie w kolejności):
+1. `$STATS_DB_PATH` (env var)
+2. `/data/stats.db` (osobny volume Docker)
+3. `/tmp/radiodyplom_stats.db` (fallback — ginie po restarcie kontenera)
+
 ## Bezpieczeństwo
 
 Plik `stats.db` jest dostępny jako plik statyczny przez nginx. Zaleca się zablokowanie dostępu do niego przez konfigurację nginx:

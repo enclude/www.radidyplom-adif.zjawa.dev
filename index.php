@@ -1,7 +1,19 @@
 <?php
 declare(strict_types=1);
 
-define('DB_PATH', __DIR__ . '/stats.db');
+define('DB_PATH', (function(): string {
+    $candidates = [
+        getenv('STATS_DB_PATH') ?: '',
+        '/data/stats.db',
+        sys_get_temp_dir() . '/radiodyplom_stats.db',
+    ];
+    foreach ($candidates as $path) {
+        if (!$path) continue;
+        $dir = dirname($path);
+        if (is_dir($dir) && is_writable($dir)) return $path;
+    }
+    return sys_get_temp_dir() . '/radiodyplom_stats.db';
+})());
 
 // --- AJAX: pobierz sesje dla callsign ---
 if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
@@ -102,10 +114,6 @@ if (isset($_GET['action']) && $_GET['action'] === 'chart_data') {
 
 // --- SQLite ---
 function db_connect(): PDO {
-    if (!file_exists(DB_PATH)) {
-        touch(DB_PATH);
-        chmod(DB_PATH, 0664);
-    }
     $db = new PDO('sqlite:' . DB_PATH);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $db->exec("CREATE TABLE IF NOT EXISTS queries (
@@ -130,9 +138,10 @@ function db_log(string $callsign, int $sessions, int $qsoTotal): void {
 if (isset($_GET['page']) && $_GET['page'] === 'stats') {
     try {
         $db      = db_connect();
-        $summary = $db->query("SELECT COUNT(*) AS queries, COUNT(DISTINCT callsign) AS callsigns, SUM(qso_total) AS qsos FROM queries")->fetch(PDO::FETCH_ASSOC);
-        $top     = $db->query("SELECT callsign, COUNT(*) AS cnt, MAX(sessions) AS sessions, MAX(qso_total) AS qso_total, MAX(queried_at) AS last_seen FROM queries GROUP BY callsign ORDER BY cnt DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
-        $recent  = $db->query("SELECT callsign, sessions, qso_total, queried_at FROM queries ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+        $summary      = $db->query("SELECT COUNT(*) AS queries, COUNT(DISTINCT callsign) AS callsigns, SUM(qso_total) AS qsos FROM queries")->fetch(PDO::FETCH_ASSOC);
+        $top          = $db->query("SELECT callsign, COUNT(*) AS cnt, MAX(sessions) AS sessions, MAX(qso_total) AS qso_total, MAX(queried_at) AS last_seen FROM queries GROUP BY callsign ORDER BY cnt DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
+        $recent       = $db->query("SELECT callsign, sessions, qso_total, queried_at FROM queries ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+        $allCallsigns = $db->query("SELECT DISTINCT callsign FROM queries ORDER BY callsign ASC")->fetchAll(PDO::FETCH_COLUMN);
     } catch (Exception $e) {
         die('Błąd bazy danych: ' . htmlspecialchars($e->getMessage()));
     }
@@ -144,6 +153,8 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
 <title>Statystyki — RadioDyplom ADIF</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #222; padding: 2rem; }
@@ -196,8 +207,8 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
       <label for="chart-cs" style="font-size:.85rem;font-weight:600;">Znak:</label>
       <select id="chart-cs" class="cs-select">
         <option value="">— wybierz —</option>
-        <?php foreach ($top as $r): ?>
-        <option value="<?= htmlspecialchars($r['callsign']) ?>"><?= htmlspecialchars($r['callsign']) ?></option>
+        <?php foreach ($allCallsigns as $cs): ?>
+        <option value="<?= htmlspecialchars($cs) ?>"><?= htmlspecialchars($cs) ?></option>
         <?php endforeach; ?>
       </select>
     </div>
@@ -248,17 +259,21 @@ if (isset($_GET['page']) && $_GET['page'] === 'stats') {
 <script>
 let chart = null;
 
-const sel   = document.getElementById('chart-cs');
-const empty = document.getElementById('chart-empty');
-const canvas= document.getElementById('myChart');
+const empty  = document.getElementById('chart-empty');
+const canvas = document.getElementById('myChart');
 
-sel.addEventListener('change', () => loadChart(sel.value));
+const tomSel = new TomSelect('#chart-cs', {
+  placeholder: 'Wyszukaj znak…',
+  allowEmptyOption: true,
+  sortField: 'text',
+});
 
-// klik na znak w tabeli → wybiera go w selekcie i ładuje wykres
+tomSel.on('change', val => loadChart(val));
+
+// klik na znak w tabeli → wybiera go w Tom Select i ładuje wykres
 document.querySelectorAll('.cs[data-cs]').forEach(el => {
   el.addEventListener('click', () => {
-    sel.value = el.dataset.cs;
-    loadChart(el.dataset.cs);
+    tomSel.setValue(el.dataset.cs);
   });
 });
 
