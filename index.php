@@ -51,6 +51,43 @@ $error    = '';
 $callsign = strtoupper(trim($_POST['callsign'] ?? ''));
 $ses_id   = trim($_POST['ses_id']   ?? '');
 
+function warsaw_ts(): string {
+    return (new DateTime('now', new DateTimeZone('Europe/Warsaw')))->format('YmdHis');
+}
+
+function curl_get(string $url): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'User-Agent: Mozilla/5.0 (RadioDyplom ADIF Exporter)'],
+    ]);
+    $response  = curl_exec($ch);
+    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+    return [$response, $httpCode, $curlError];
+}
+
+function fetch_session_ids(string $callsign): array|string {
+    [$html, , $curlError] = curl_get('https://radiodyplom.pl/myAwards.php?callsign=' . urlencode($callsign));
+    if ($curlError) return $curlError;
+    preg_match_all('/<a href="\/ses\/(\d+)">/', $html, $m);
+    return array_unique(array_map('intval', $m[1]));
+}
+
+function fetch_qsos(string $callsign, int $ses_id): array {
+    $url = sprintf(
+        'https://radiodyplom.pl/ajax_participant_qso.php?ses_id=%d&callsign=%s&page=1&limit=1000',
+        $ses_id, urlencode($callsign)
+    );
+    [$response, $httpCode, $curlError] = curl_get($url);
+    if ($curlError || $httpCode !== 200) return [];
+    $data = json_decode($response, true);
+    return $data['qso'] ?? $data['qsos'] ?? $data['data'] ?? [];
+}
+
 function adif_field(string $name, ?string $value): string {
     if ($value === null || $value === '') return '';
     return sprintf('<%s:%d>%s', strtoupper($name), strlen($value), $value);
@@ -89,41 +126,45 @@ function generate_adif(array $qsos, string $myCall): string {
     return $out;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
-    $url = sprintf(
-        'https://radiodyplom.pl/ajax_participant_qso.php?ses_id=%s&callsign=%s&page=1&limit=1000',
-        urlencode($ses_id), urlencode($callsign)
-    );
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT        => 15,
-        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'User-Agent: Mozilla/5.0 (RadioDyplom ADIF Exporter)'],
-    ]);
-    $response  = curl_exec($ch);
-    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($curlError) {
-        $error = "cURL error: $curlError";
-    } elseif ($httpCode !== 200) {
-        $error = "Serwer zwrócił HTTP $httpCode";
+// Pobierz wszystkie sesje
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && isset($_POST['download_all'])) {
+    $ids = fetch_session_ids($callsign);
+    if (is_string($ids)) {
+        $error = "cURL error: $ids";
+    } elseif (empty($ids)) {
+        $error = 'Nie znaleziono sesji dla tego znaku.';
     } else {
-        $data = json_decode($response, true);
-        $qsos = $data['qso'] ?? $data['qsos'] ?? $data['data'] ?? [];
-        if (empty($qsos)) {
-            $error = 'Brak łączności w odpowiedzi. Sprawdź ses_id i callsign.';
+        $allQsos = [];
+        foreach ($ids as $id) {
+            $allQsos = array_merge($allQsos, fetch_qsos($callsign, $id));
+        }
+        if (empty($allQsos)) {
+            $error = 'Brak łączności we wszystkich sesjach.';
         } else {
-            $adif     = generate_adif($qsos, $callsign);
-            $filename = "radiodyplom_ses{$ses_id}_{$callsign}.adi";
+            $adif     = generate_adif($allQsos, $callsign);
+            $filename = "radiodyplom_ALL_{$callsign}_" . warsaw_ts() . '.adi';
             header('Content-Type: text/plain; charset=utf-8');
             header("Content-Disposition: attachment; filename=\"$filename\"");
             header('Content-Length: ' . strlen($adif));
             echo $adif;
             exit;
         }
+    }
+}
+
+// Pobierz jedną sesję
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
+    $qsos = fetch_qsos($callsign, (int) $ses_id);
+    if (empty($qsos)) {
+        $error = 'Brak łączności w odpowiedzi. Sprawdź ses_id i callsign.';
+    } else {
+        $adif     = generate_adif($qsos, $callsign);
+        $filename = "radiodyplom_ses{$ses_id}_{$callsign}_" . warsaw_ts() . '.adi';
+        header('Content-Type: text/plain; charset=utf-8');
+        header("Content-Disposition: attachment; filename=\"$filename\"");
+        header('Content-Length: ' . strlen($adif));
+        echo $adif;
+        exit;
     }
 }
 ?>
@@ -157,9 +198,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
   select { width: 100%; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; font-size: .95rem; margin-bottom: 1rem; background: #fff; }
   select:focus { outline: none; border-color: #4a90d9; }
   select:disabled { background: #f5f5f5; color: #aaa; }
-  button[type=submit] { width: 100%; padding: .7rem; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+  button[type=submit] { width: 100%; padding: .7rem; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 700; cursor: pointer; margin-bottom: .5rem; }
   button[type=submit]:hover { background: #1d4ed8; }
   button[type=submit]:disabled { background: #93c5fd; cursor: default; }
+  .btn-all { background: #16a34a !important; }
+  .btn-all:hover { background: #15803d !important; }
+  .btn-all:disabled { background: #86efac !important; }
   .error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 6px; padding: .6rem .9rem; margin-bottom: 1rem; font-size: .9rem; }
 </style>
 </head>
@@ -187,7 +231,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
       <option value="">— wpisz znak wywoławczy —</option>
     </select>
 
-    <button type="submit" id="btn-submit" disabled>⬇ Pobierz plik ADIF</button>
+    <input type="hidden" id="download_all_input" name="download_all" value="" disabled>
+    <button type="submit" id="btn-submit" disabled>⬇ Pobierz sesję (ADIF)</button>
+    <button type="submit" id="btn-all" class="btn-all" disabled
+            onclick="document.getElementById('download_all_input').disabled=false; document.getElementById('ses_select').removeAttribute('required');">
+      ⬇ Pobierz wszystkie sesje (ADIF)
+    </button>
   </form>
 
   <p style="margin-top:1rem; font-size:.82rem; color:#6b7280; line-height:1.5; border-top:1px solid #e5e7eb; padding-top:.9rem;">
@@ -215,6 +264,7 @@ const callsignInput = document.getElementById('callsign');
 const select        = document.getElementById('ses_select');
 const spinner       = document.getElementById('spinner');
 const btnSubmit     = document.getElementById('btn-submit');
+const btnAll        = document.getElementById('btn-all');
 let debounceTimer   = null;
 
 callsignInput.addEventListener('input', () => {
@@ -234,6 +284,7 @@ function resetSelect() {
   select.innerHTML   = '<option value="">— wpisz znak wywoławczy —</option>';
   select.disabled    = true;
   btnSubmit.disabled = true;
+  btnAll.disabled    = true;
   document.getElementById('summary-content').innerHTML =
     '<p class="summary-empty">Wpisz znak wywoławczy, aby zobaczyć statystyki.</p>';
 }
@@ -266,6 +317,7 @@ async function fetchSessions(callsign) {
 
     select.disabled    = false;
     btnSubmit.disabled = false;
+    btnAll.disabled    = false;
     renderSummary(data);
   } catch (e) {
     select.innerHTML = '<option value="">Błąd pobierania sesji</option>';
