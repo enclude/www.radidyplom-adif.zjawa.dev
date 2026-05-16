@@ -46,6 +46,42 @@ if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
     exit;
 }
 
+// --- AJAX: statystyki unikalnych QSO ---
+if (isset($_GET['action']) && $_GET['action'] === 'stats') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $callsign = strtoupper(trim($_GET['callsign'] ?? ''));
+    if (!$callsign) { echo json_encode(['error' => 'Brak callsign']); exit; }
+
+    $ids = fetch_session_ids($callsign);
+    if (is_string($ids)) { echo json_encode(['error' => $ids]); exit; }
+
+    $allQsos = [];
+    foreach ($ids as $id) {
+        $allQsos = array_merge($allQsos, fetch_qsos($callsign, $id));
+    }
+
+    $total  = count($allQsos);
+    $unique = [];
+    foreach ($allQsos as $q) {
+        $key = implode('|', [
+            $q['operator']  ?? '',
+            $q['qso_date']  ?? '',
+            $q['time_on']   ?? '',
+            $q['band']      ?? '',
+            $q['mode']      ?? '',
+        ]);
+        $unique[$key] = $q;
+    }
+
+    echo json_encode([
+        'total'      => $total,
+        'unique'     => count($unique),
+        'duplicates' => $total - count($unique),
+    ]);
+    exit;
+}
+
 // --- POST: generuj ADIF ---
 $error    = '';
 $callsign = strtoupper(trim($_POST['callsign'] ?? ''));
@@ -134,9 +170,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && isset($_POST['download
     } elseif (empty($ids)) {
         $error = 'Nie znaleziono sesji dla tego znaku.';
     } else {
-        $allQsos = [];
+        $raw = [];
         foreach ($ids as $id) {
-            $allQsos = array_merge($allQsos, fetch_qsos($callsign, $id));
+            $raw = array_merge($raw, fetch_qsos($callsign, $id));
+        }
+        $seen    = [];
+        $allQsos = [];
+        foreach ($raw as $q) {
+            $key = implode('|', [$q['operator'] ?? '', $q['qso_date'] ?? '', $q['time_on'] ?? '', $q['band'] ?? '', $q['mode'] ?? '']);
+            if (!isset($seen[$key])) { $seen[$key] = true; $allQsos[] = $q; }
         }
         if (empty($allQsos)) {
             $error = 'Brak łączności we wszystkich sesjach.';
@@ -319,6 +361,7 @@ async function fetchSessions(callsign) {
     btnSubmit.disabled = false;
     btnAll.disabled    = false;
     renderSummary(data);
+    fetchStats(callsign);
   } catch (e) {
     select.innerHTML = '<option value="">Błąd pobierania sesji</option>';
   } finally {
@@ -327,9 +370,9 @@ async function fetchSessions(callsign) {
 }
 
 function renderSummary(sessions) {
-  const totalQso  = sessions.reduce((s, x) => s + x.qso, 0);
-  const best      = sessions.reduce((a, b) => b.qso > a.qso ? b : a, sessions[0]);
-  const ongoing   = sessions.filter(s => s.status === 'status-ongoing').length;
+  const totalQso = sessions.reduce((s, x) => s + x.qso, 0);
+  const best     = sessions.reduce((a, b) => b.qso > a.qso ? b : a, sessions[0]);
+  const ongoing  = sessions.filter(s => s.status === 'status-ongoing').length;
 
   document.getElementById('summary-content').innerHTML = `
     <div class="stat">
@@ -338,9 +381,14 @@ function renderSummary(sessions) {
       <div class="stat-sub">${ongoing > 0 ? `w tym ${ongoing} aktualnie trwające` : 'brak aktualnie trwających'}</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Łączności (QSO)</div>
+      <div class="stat-label">Wszystkie QSO</div>
       <div class="stat-value">${totalQso}</div>
-      <div class="stat-sub">łącznie na radiodyplom.pl</div>
+      <div class="stat-sub">suma ze wszystkich akcji</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Unikalne QSO</div>
+      <div class="stat-value" id="stat-unique">⏳</div>
+      <div class="stat-sub" id="stat-unique-sub">trwa liczenie…</div>
     </div>
     <div class="stat">
       <div class="stat-label">Najaktywniejsza akcja</div>
@@ -348,6 +396,24 @@ function renderSummary(sessions) {
       <div class="stat-sub">${best.qso} QSO (ses_id: ${best.id})</div>
     </div>
   `;
+}
+
+async function fetchStats(callsign) {
+  try {
+    const resp = await fetch(`?action=stats&callsign=${encodeURIComponent(callsign)}`);
+    const s    = await resp.json();
+    const elV  = document.getElementById('stat-unique');
+    const elS  = document.getElementById('stat-unique-sub');
+    if (!elV) return;
+    if (s.error) { elV.textContent = '—'; elS.textContent = s.error; return; }
+    elV.textContent = s.unique;
+    elS.textContent = s.duplicates > 0
+      ? `⚠ ${s.duplicates} duplikat${s.duplicates === 1 ? '' : s.duplicates < 5 ? 'y' : 'ów'} w różnych akcjach`
+      : 'brak duplikatów między akcjami';
+  } catch (e) {
+    const el = document.getElementById('stat-unique');
+    if (el) el.textContent = '—';
+  }
 }
 </script>
 </body>
