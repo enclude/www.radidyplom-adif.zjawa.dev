@@ -41,19 +41,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
         ];
     }
 
-    usort($sessions, function($a, $b) {
-        $aOngoing = $a['status'] === 'status-ongoing' ? 0 : 1;
-        $bOngoing = $b['status'] === 'status-ongoing' ? 0 : 1;
-        if ($aOngoing !== $bOngoing) return $aOngoing <=> $bOngoing;
-        return $b['id'] <=> $a['id'];
-    });
+    usort($sessions, fn($a, $b) => $b['id'] <=> $a['id']);
     echo json_encode($sessions);
     exit;
 }
 
 // --- POST: generuj ADIF ---
 $error    = '';
-$callsign = trim($_POST['callsign'] ?? '');
+$callsign = strtoupper(trim($_POST['callsign'] ?? ''));
 $ses_id   = trim($_POST['ses_id']   ?? '');
 
 function adif_field(string $name, ?string $value): string {
@@ -137,6 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
 <head>
 <meta charset="UTF-8">
 <title>RadioDyplom → ADIF Export</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #222; padding: 2rem; }
@@ -172,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
     <div class="input-wrap">
       <input type="text" id="callsign" name="callsign"
              value="<?= htmlspecialchars($callsign) ?>"
-             placeholder="np. SP3M" autocomplete="off" required>
+             placeholder="np. SP0ABC" autocomplete="off" required>
       <div class="spinner" id="spinner"></div>
     </div>
 
@@ -183,6 +179,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
 
     <button type="submit" id="btn-submit" disabled>⬇ Pobierz plik ADIF</button>
   </form>
+
+  <p style="margin-top:1rem; font-size:.82rem; color:#6b7280; line-height:1.5; border-top:1px solid #e5e7eb; padding-top:.9rem;">
+    ℹ️ <strong>QRZ.com</strong> nie doda ponownie łączności, która już istnieje w logu — import ADIF jest odporny na duplikaty. Możesz bezpiecznie importować plik wielokrotnie.
+  </p>
 </div>
 
 <footer style="text-align:center; margin-top:1.5rem; font-size:.8rem; color:#999;">
