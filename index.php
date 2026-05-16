@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+define('DB_PATH', __DIR__ . '/stats.db');
+
 // --- AJAX: pobierz sesje dla callsign ---
 if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
     header('Content-Type: application/json; charset=utf-8');
@@ -99,9 +101,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'chart_data') {
 }
 
 // --- SQLite ---
-define('DB_PATH', __DIR__ . '/stats.db');
-
 function db_connect(): PDO {
+    if (!file_exists(DB_PATH)) {
+        touch(DB_PATH);
+        chmod(DB_PATH, 0664);
+    }
     $db = new PDO('sqlite:' . DB_PATH);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $db->exec("CREATE TABLE IF NOT EXISTS queries (
@@ -119,7 +123,7 @@ function db_log(string $callsign, int $sessions, int $qsoTotal): void {
         $db = db_connect();
         $db->prepare("INSERT INTO queries (callsign, sessions, qso_total) VALUES (?, ?, ?)")
            ->execute([strtoupper($callsign), $sessions, $qsoTotal]);
-    } catch (Exception $e) { /* silent */ }
+    } catch (\Throwable $e) { /* silent */ }
 }
 
 // --- Strona statystyk ---
