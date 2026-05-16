@@ -41,7 +41,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
         ];
     }
 
-    usort($sessions, fn($a, $b) => $b['id'] <=> $a['id']);
+    usort($sessions, function($a, $b) {
+        $aOngoing = $a['status'] === 'status-ongoing' ? 0 : 1;
+        $bOngoing = $b['status'] === 'status-ongoing' ? 0 : 1;
+        if ($aOngoing !== $bOngoing) return $aOngoing <=> $bOngoing;
+        return $b['id'] <=> $a['id'];
+    });
     echo json_encode($sessions);
     exit;
 }
@@ -140,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
   .subtitle { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
   label { display: block; font-weight: 600; font-size: .9rem; margin-bottom: .3rem; }
   .input-wrap { position: relative; margin-bottom: 1rem; }
-  input[type=text] { width: 100%; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; }
+  input[type=text] { width: 100%; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; text-transform: uppercase; }
   input[type=text]:focus { outline: none; border-color: #4a90d9; box-shadow: 0 0 0 3px rgba(74,144,217,.15); }
   .spinner { display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; border: 2px solid #ccc; border-top-color: #2563eb; border-radius: 50%; animation: spin .7s linear infinite; }
   @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
@@ -179,6 +184,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $callsign && $ses_id) {
     <button type="submit" id="btn-submit" disabled>⬇ Pobierz plik ADIF</button>
   </form>
 </div>
+
+<footer style="text-align:center; margin-top:1.5rem; font-size:.8rem; color:#999;">
+  Stworzono przez <strong>Zjawa.IT</strong> &mdash;
+  <a href="https://github.com/enclude/www.radidyplom-adif.zjawa.dev" target="_blank" rel="noopener"
+     style="color:#6b7280; text-decoration:underline;">GitHub</a>
+</footer>
 
 <script>
 const callsignInput = document.getElementById('callsign');
@@ -228,7 +239,7 @@ async function fetchSessions(callsign) {
         : s.status === 'status-upcoming'
           ? 'nadchodzi'
           : 'zakończona';
-      opt.textContent = `${s.name} — ${s.qso} QSO (${status})`;
+      opt.textContent = `${s.name} (ses_id: ${s.id}) — ${s.qso} QSO (${status})`;
       select.appendChild(opt);
     });
 
