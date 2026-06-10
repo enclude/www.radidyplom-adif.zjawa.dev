@@ -7,8 +7,9 @@ Narzędzie webowe do eksportu łączności z [radiodyplom.pl](https://radiodyplo
 - Wpisanie znaku wywoławczego automatycznie ładuje listę sesji (akcji dyplomowych)
 - Eksport pojedynczej sesji do pliku `.adi`
 - Eksport wszystkich sesji naraz (z deduplikacją — te same QSO w różnych akcjach są scalane)
+- Pełny eksport niezależnie od liczby łączności — API radiodyplom.pl zwraca maks. 100 QSO na stronę, aplikacja pobiera kolejne strony automatycznie
 - Podsumowanie: liczba akcji, wszystkie QSO, unikalne QSO, najaktywniejsza akcja
-- Statystyki zapytań zapisywane w SQLite (`?page=stats`)
+- Statystyki zapytań zapisywane w SQLite (`?page=stats`) z wykresem historii QSO dla wybranego znaku
 - Timestamp w nazwie pliku wg czasu warszawskiego
 
 ## Uruchomienie (Docker)
@@ -99,6 +100,10 @@ location ~* \.db$ {
 
 Klucz unikalności QSO: `operator + data + czas + pasmo + tryb`.  
 QRZ.com dodatkowo nie doda ponownie łączności, która już istnieje w logu.
+
+## Skąd pochodzą liczby QSO
+
+Liczba QSO przy każdej sesji jest odczytywana ze strony radiodyplom.pl i odpowiada **QSO zaliczonym w rankingu** danej akcji. Serwis może zmieniać zasady zaliczania (np. deduplikacja po swojej stronie), więc liczby w historii (`?page=stats`) mogą z czasem spaść — to odzwierciedla zmiany w danych źródłowych, nie błąd eksportera.
 
 ## Autor
 
