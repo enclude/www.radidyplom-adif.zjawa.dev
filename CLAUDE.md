@@ -21,7 +21,7 @@ Wszystko w jednym pliku `index.php`. Obsługa różnych akcji przez `$_GET['acti
 Nie wymaga autoryzacji — oba endpointy są publiczne:
 
 - `myAwards.php?callsign=X` — zwraca HTML ze strukturą sesji (scraping regexem)
-- `ajax_participant_qso.php?ses_id=X&callsign=Y&page=1&limit=1000` — zwraca JSON z łączności
+- `ajax_participant_qso.php?ses_id=X&callsign=Y&page=1&limit=1000` — zwraca JSON z łączności. Uwaga: serwer ignoruje `limit` powyżej 100 (`per_page` zawsze 100) — `fetch_qsos()` iteruje po stronach wg `pagination.total_pages`
 
 ### Struktura JSON z ajax_participant_qso.php
 ```json

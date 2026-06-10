@@ -365,14 +365,25 @@ function fetch_session_ids(string $callsign): array|string {
 }
 
 function fetch_qsos(string $callsign, int $ses_id): array {
-    $url = sprintf(
-        'https://radiodyplom.pl/ajax_participant_qso.php?ses_id=%d&callsign=%s&page=1&limit=1000',
-        $ses_id, urlencode($callsign)
-    );
-    [$response, $httpCode, $curlError] = curl_get($url);
-    if ($curlError || $httpCode !== 200) return [];
-    $data = json_decode($response, true);
-    return $data['qso'] ?? $data['qsos'] ?? $data['data'] ?? [];
+    // API ignoruje limit > 100 (per_page=100), więc trzeba iterować po stronach
+    $qsos       = [];
+    $page       = 1;
+    $totalPages = 1;
+    do {
+        $url = sprintf(
+            'https://radiodyplom.pl/ajax_participant_qso.php?ses_id=%d&callsign=%s&page=%d&limit=1000',
+            $ses_id, urlencode($callsign), $page
+        );
+        [$response, $httpCode, $curlError] = curl_get($url);
+        if ($curlError || $httpCode !== 200) break;
+        $data  = json_decode($response, true);
+        $batch = $data['qso'] ?? $data['qsos'] ?? $data['data'] ?? [];
+        if (!$batch) break;
+        $qsos       = array_merge($qsos, $batch);
+        $totalPages = (int) ($data['pagination']['total_pages'] ?? 1);
+        $page++;
+    } while ($page <= $totalPages && $page <= 100);
+    return $qsos;
 }
 
 function adif_field(string $name, ?string $value): string {
