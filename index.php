@@ -583,7 +583,9 @@ callsignInput.addEventListener('input', () => {
   const cs = callsignInput.value.trim();
   resetSelect();
   if (cs.length < 3) return;
-  debounceTimer = setTimeout(() => fetchSessions(cs), 500);
+  // Odpytujemy serwer dopiero 3,5 s po ostatnim znaku — ogranicza liczbę zapytań
+  // do radiodyplom.pl (mniejsze ryzyko blokady BOT_DETECTED) zamiast strzelać przy każdym znaku.
+  debounceTimer = setTimeout(() => fetchSessions(cs), 3500);
 });
 
 window.addEventListener('DOMContentLoaded', () => {
