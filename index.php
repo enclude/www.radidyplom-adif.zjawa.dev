@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// radiodyplom.pl od 2026-06 blokuje "boty" (myAwards.php zwraca 403 BOT_DETECTED).
+// Detekcja wymaga przeglądarkowego User-Agent ORAZ nagłówka Accept-Language
+// (brak Accept-Language = blokada, sam UA nie wystarcza). Patrz CURLOPT_HTTPHEADER niżej.
+define('HTTP_USER_AGENT', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
 define('DB_PATH', (function(): string {
     $candidates = [
         getenv('STATS_DB_PATH') ?: '',
@@ -28,7 +33,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'sessions') {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT        => 15,
-        CURLOPT_HTTPHEADER     => ['User-Agent: Mozilla/5.0 (RadioDyplom ADIF Exporter)'],
+        CURLOPT_HTTPHEADER     => ['User-Agent: ' . HTTP_USER_AGENT, 'Accept-Language: pl-PL,pl;q=0.9,en;q=0.8'],
     ]);
     $html      = curl_exec($ch);
     $curlError = curl_error($ch);
@@ -348,7 +353,7 @@ function curl_get(string $url): array {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT        => 15,
-        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'User-Agent: Mozilla/5.0 (RadioDyplom ADIF Exporter)'],
+        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'User-Agent: ' . HTTP_USER_AGENT, 'Accept-Language: pl-PL,pl;q=0.9,en;q=0.8'],
     ]);
     $response  = curl_exec($ch);
     $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);

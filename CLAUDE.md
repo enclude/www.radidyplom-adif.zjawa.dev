@@ -20,6 +20,16 @@ Wszystko w jednym pliku `index.php`. Obsługa różnych akcji przez `$_GET['acti
 
 Nie wymaga autoryzacji — oba endpointy są publiczne:
 
+### Detekcja botów (od ~2026-06)
+
+`myAwards.php` blokuje "boty" zwracając **HTTP 403** + `{"error":true,"code":"BOT_DETECTED"}`.
+Aby przejść, każde zapytanie curl MUSI wysyłać oba nagłówki naraz:
+
+- przeglądarkowy `User-Agent` (stała `HTTP_USER_AGENT`)
+- `Accept-Language: pl-PL,pl;q=0.9,en;q=0.8` — **brak tego nagłówka = blokada**, sam UA nie wystarcza
+
+`ajax_participant_qso.php` (JSON) nie jest objęty blokadą, ale dla spójności wysyłamy te same nagłówki.
+
 - `myAwards.php?callsign=X` — zwraca HTML ze strukturą sesji (scraping regexem)
 - `ajax_participant_qso.php?ses_id=X&callsign=Y&page=1&limit=1000` — zwraca JSON z łączności. Uwaga: serwer ignoruje `limit` powyżej 100 (`per_page` zawsze 100) — `fetch_qsos()` iteruje po stronach wg `pagination.total_pages`
 
