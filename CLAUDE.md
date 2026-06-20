@@ -64,6 +64,18 @@ Regex wyciągający ID sesji, nazwę, status i liczbę QSO z jednego przebiegu:
 
 Klasy statusów: `status-ongoing` (trwa), `status-finished` (zakończona), `status-upcoming` (nadchodząca).
 
+## Warstwa prezentacji (UI)
+
+Obie strony (eksporter + `?page=stats`) współdzielą CSS przez funkcje PHP zamiast duplikować bloki `<style>`:
+
+- `app_styles()` — jeden blok `<style>` z tokenami w `:root` (kolory, promienie, cienie, focus-ring) i kompletem klas komponentów. Override ciemnego motywu przez `[data-theme="dark"]`.
+- `theme_init_script()` — inline `<script>` w `<head>`, ustawia `data-theme` na `<html>` przed renderem (brak FOUC). Źródło: `localStorage['theme']` → `prefers-color-scheme`.
+- `theme_toggle_html()` — pływający przycisk ☾/☀ + jego obsługa; zapisuje wybór w `localStorage`.
+
+Wykres Chart.js czyta kolory ze zmiennych CSS (`themeColors()`) i przerysowuje się przy zmianie motywu (`MutationObserver` na `data-theme`). Tom Select ma override'y dla dark mode w `app_styles()`.
+
+Kolory/odstępy zmieniaj **tylko** w tokenach `:root` / `[data-theme="dark"]` — nie wpisuj wartości na sztywno w komponentach ani inline w HTML.
+
 ## SQLite
 
 Plik: `stats.db` w katalogu aplikacji (`__DIR__ . '/stats.db'`).
