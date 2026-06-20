@@ -1,6 +1,21 @@
 <?php
 declare(strict_types=1);
 
+// Kanoniczny adres witryny — wejście z innego hosta przekierowujemy na rdadi.zjawa.dev.
+// Pomijamy lokalne uruchomienia (localhost / 127.0.0.1) oraz CLI, by nie psuć dev/Dockera.
+(function (): void {
+    if (PHP_SAPI === 'cli') return;
+    $canonical = 'rdadi.zjawa.dev';
+    $host = strtolower(preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '' || $host === $canonical) return;
+    if ($host === 'localhost' || $host === '127.0.0.1' || $host === '::1') return;
+    // Tylko bezpieczne metody — żeby nie gubić danych z formularza POST.
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') return;
+    $uri = $_SERVER['REQUEST_URI'] ?? '/';
+    header('Location: https://' . $canonical . $uri, true, 301);
+    exit;
+})();
+
 // radiodyplom.pl od 2026-06 blokuje "boty" (myAwards.php zwraca 403 BOT_DETECTED).
 // Detekcja wymaga przeglądarkowego User-Agent ORAZ nagłówka Accept-Language
 // (brak Accept-Language = blokada, sam UA nie wystarcza). Patrz CURLOPT_HTTPHEADER niżej.

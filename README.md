@@ -2,6 +2,8 @@
 
 Narzędzie webowe do eksportu łączności z [radiodyplom.pl](https://radiodyplom.pl) do formatu **ADIF** (Amateur Data Interchange Format), który można zaimportować do logów takich jak QRZ.com, HAMLOG, Log4OM itp.
 
+🌐 Strona działa też online pod adresem: **<https://rdadi.zjawa.dev/>**
+
 ## Funkcje
 
 - Wpisanie znaku wywoławczego automatycznie ładuje listę sesji (akcji dyplomowych)
